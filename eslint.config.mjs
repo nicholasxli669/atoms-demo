@@ -12,6 +12,11 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // 本项目新增：部署产物与脚本产物（内含打包进来的 node_modules，不该参与 lint）
+    "dist/**",
+    "scripts/.shots/**",
+    "scripts/.out/**",
+    "data/**",
   ]),
 ]);
 

@@ -268,9 +268,17 @@ export const store = {
 
   async deleteProject(id: string) {
     const d = await getDriver();
-    await d.run(`DELETE FROM messages WHERE project_id = ?`, [id]);
-    await d.run(`DELETE FROM versions WHERE project_id = ?`, [id]);
-    await d.run(`DELETE FROM projects WHERE id = ?`, [id]);
+    // 没有外键约束，三张表必须一起删；放进事务避免中途失败留下孤儿行
+    await d.exec("BEGIN");
+    try {
+      await d.run(`DELETE FROM messages WHERE project_id = ?`, [id]);
+      await d.run(`DELETE FROM versions WHERE project_id = ?`, [id]);
+      await d.run(`DELETE FROM projects WHERE id = ?`, [id]);
+      await d.exec("COMMIT");
+    } catch (e) {
+      await d.exec("ROLLBACK");
+      throw e;
+    }
   },
 
   async listMessages(projectId: string): Promise<ChatMessage[]> {
