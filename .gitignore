@@ -47,3 +47,6 @@ next-env.d.ts
 /scripts/.shots
 *.tsbuildinfo
 
+
+# ²¿Êğ²úÎï
+/dist

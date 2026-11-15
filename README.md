@@ -161,13 +161,46 @@ npm run build && npm start
 
 ## 7. 部署（可测试在线链接）
 
-Vercel 的 Serverless 文件系统只读，本地 SQLite 不适用，接 Turso（libSQL，免费额度足够）。**代码零改动**：`store.ts` 只要检测到 `TURSO_DATABASE_URL` 就自动切到 libSQL 驱动。
+本项目是 **Next.js 16 + `node:sqlite`**，部署目标决定存储方案，两种都不改业务代码：
 
-### 7.1 建库（Turso）
+| 部署目标 | 存储 | 改动量 |
+|---|---|---|
+| **阿里云 ECS / 轻量应用服务器**（推荐，有持久盘） | 本地 SQLite 文件 | 零改动，`node server.js` 就跑 |
+| Vercel / Serverless（无持久盘） | Turso（libSQL） | 零改动，配上 `TURSO_DATABASE_URL` 自动切换驱动 |
 
-方式 A：网页控制台 <https://turso.tech> → 新建 database → 复制 `libsql://…` 地址与 token。
+### 7.1 阿里云 ECS（推荐）
 
-方式 B：命令行（Windows PowerShell）
+完整步骤（装 Node 24 / 上传 / .env / systemd / Nginx / 备份 / 更新发版 / 排障）见 **[`docs/aliyun-ecs.md`](docs/aliyun-ecs.md)**。最短路径：
+
+```powershell
+# 本地：产出可独立运行的目录并压缩（约 39MB → zip 12MB）
+npm run build
+node scripts/pack.mjs
+Compress-Archive -Path dist\atoms-demo -DestinationPath dist\atoms-demo.zip -Force
+scp dist\atoms-demo.zip root@<ECS公网IP>:/opt/
+```
+
+```bash
+# 服务器（要求 Node >= 22.5，node:sqlite 依赖）
+cd /opt && apt-get install -y unzip && unzip -o atoms-demo.zip -d /opt
+cd /opt/atoms-demo && cp .env.example .env && nano .env    # 填 DEEPSEEK_API_KEY
+PORT=3000 node server.js
+curl -s localhost:3000/api/health
+```
+
+安全组放行 `3000`（或 `80` 走 Nginx）→ 浏览器打开 `http://<公网IP>:3000` 即为可测试在线链接。
+
+> Nginx 反代**必须加 `proxy_buffering off;`**，否则 SSE 会被缓冲成"一次性返回"，流式生成的演示效果全丢。
+> 大陆节点用域名 + 80/443 需要域名已备案；直接用 `IP:3000` 不需要。
+
+### 7.2 备选：Vercel + Turso（Serverless）
+
+Serverless 文件系统只读，本地 SQLite 不适用，接 Turso（libSQL，免费额度足够）。**代码零改动**：`store.ts` 检测到 `TURSO_DATABASE_URL` 就自动切到 libSQL 驱动。
+
+建库（任选其一）：
+
+- 网页控制台 <https://turso.tech> → 新建 database → 复制 `libsql://…` 地址与 token
+- 命令行：
 
 ```powershell
 irm https://get.tur.so/install.ps1 | iex
@@ -177,10 +210,9 @@ turso db show atoms-demo --url          # → TURSO_DATABASE_URL
 turso db tokens create atoms-demo       # → TURSO_AUTH_TOKEN
 ```
 
-### 7.2 部署（Vercel）
+部署：
 
 ```powershell
-npm i -g vercel
 vercel login          # 邮箱登录即可
 vercel link           # 关联到新项目 atoms-demo
 vercel env add DEEPSEEK_API_KEY production
@@ -189,14 +221,15 @@ vercel env add TURSO_AUTH_TOKEN production
 vercel --prod
 ```
 
-部署后先打开 `/api/health` 自检，应返回：
+### 7.3 部署后自检
 
 ```json
 { "ok": true, "mode": "live", "model": "deepseek-chat", "store": "libsql:remote", "persistent": true }
 ```
 
-- `mode` 为 `live` 表示模型已接通（否则是离线演示模式）；`persistent: true` 表示接的是远端库，重启不丢数据。
-- `generate` 路由已声明 `maxDuration = 300`：单次生成 15~40s，Vercel Fluid Compute 下 Hobby 计划上限即 300s，够用；若换成 60s 上限的平台，需要把生成长度压到 300 行以内或改成分段续写。
+- `mode` 为 `live` 表示模型已接通（否则是离线演示模式）；`persistent: true` 表示数据在持久存储上，重启不丢。
+- `generate` 路由已声明 `maxDuration = 300`：单次生成 15~40s，Vercel Fluid Compute 下 Hobby 计划上限即 300s，够用；若换成 60s 上限的平台，需要把生成长度压到 300 行以内或改成分段续写。ECS 自己跑进程没有这个限制。
+
 
 
 ---
