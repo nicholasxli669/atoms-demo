@@ -1,254 +1,111 @@
-# Atoms Demo · Agent Studio
+# Atoms Studio · 大仓（Web + Python Agent）
 
-一个**可运行的 AI Agent 应用生成器**：用一句话描述需求，Agent 分阶段（规划 → 生成 → 静态校验 → 自我修复）产出一个**单文件、可直接运行、数据可持久化**的网页应用，并实时渲染在右侧预览区；之后可以多轮对话修改、回滚任意版本、导出 HTML。
+一句话需求 → Agent 分阶段规划、流式生成单文件 Web 应用 → 静态校验 → 失败自动修复 / 截断续写 → 工作台实时预览、版本回滚、控制台报错一键回传修复。
 
-> 本项目是针对 Atoms 笔试做的 Demo：不是"纯静态概念展示"，而是完整可跑的产品原型——
-> 有真实交互、有服务端持久化、有延展能力（运行时报错回传 Agent 自修复）。
+**动手前先看这两条**：无 API Key 也能完整演示（自动进入离线演示模式）；只起 Web 也能跑（自动回落内置流水线）。
 
----
-
-## 1. 在线体验
-
-| 地址 | 说明 |
-| --- | --- |
-| `https://<your-deploy>.vercel.app` | 部署后填写（Vercel + Turso，见第 7 节） |
-
-本地跑：见第 6 节，3 条命令即可。
-
----
-
-## 2. 核心流程（Agent 流水线）
+## 大仓结构
 
 ```
-用户一句话需求
-      │
-      ▼
-① 产品经理  chatOnce → JSON{应用名, 定位, 3~5 个可交互功能点}   ← 让"生成什么"先对齐
-      │
-      ▼
-② 工程师    chatStream → 单文件 HTML（内联 CSS/JS，零外部依赖） ← 逐 token 流式，前端实时显示进度
-      │
-      ▼
-③ QA        validateApp() 纯函数静态检查：DOCTYPE/闭合标签/标签配对/
-            外链、localStorage、alert() 等  ← 不通过则进入 ④
-      │
-      ▼
-④ 工程师    最多 2 轮自修复：把 issue 列表回传模型 → 重新生成 → 再校验
-      │
-      ▼
-⑤ 工作区    versions 表存版本 ｜ messages 表存对话与执行步骤 ｜ projects 表更新应用名
-      │
-      ▼
-右侧 iframe 实时渲染 + 代码视图 + 控制台 + 版本回滚
+atoms-demo/
+├── apps/
+│   ├── studio/                # Next.js 16 工作台（UI + 状态 + 持久化 + SSE 入口）
+│   │   ├── src/app/api/generate/route.ts    # 唯一对浏览器开放的生成接口（SSE）
+│   │   ├── src/lib/store.ts                 # node:sqlite ⇄ libSQL(Turso) 双驱动
+│   │   ├── src/lib/agentClient.ts           # 调 Python Agent 的客户端（AGENT_URL）
+│   │   └── tests/ · scripts/                # 单测 / E2E / 审计脚本
+│   └── agent/                 # Python Agent 服务（FastAPI，只负责"想+写+自检"）
+│       ├── agent/pipeline.py  # 规划 → 生成 → 校验 → 修复 → 续写（async generator）
+│       ├── agent/validate.py  # 与 TS 版同一套判据
+│       └── tests/             # 假 LLM 跑完整事件序列，不花钱
+├── packages/contract/         # 两个服务共同遵守的事件契约 + 契约自检脚本
+├── docs/                      # 部署文档
+└── scripts/                   # 打包与一键部署（跨服务）
 ```
 
-> 阶段按**角色**命名（产品经理 / 工程师 / QA）是刻意的：atoms.dev 的产品叙事是"AI 员工团队"（validate ideas → build products），
-> 所以这里不是"一次调模型"，而是把职责拆成多角色、有交接产物（方案 JSON → 代码 → 校验报告 → 新版本）的流水线，界面上能逐条看到每个角色做了什么。
+职责边界：**Agent 无状态**（不碰数据库、不落文件），只吐事件；**Web 负责落库**与对浏览器的事件协议。契约见 [`packages/contract/agent-events.md`](packages/contract/agent-events.md)。
 
-**为什么生成"单文件 HTML"而不是 React 工程？**
-1. 浏览器 `iframe srcdoc` 秒级渲染，不需要构建/沙箱进程，Demo 的"体验闭环"最短；
-2. 生成物**独立可用**：导出后双击就能跑，方便评委验证"是真应用不是截图"；
-3. 模型对单文件 HTML 的一次成功率明显高于多文件工程，能把 6~8 小时的预算花在 Agent 编排与体验上，而不是修构建错误。
+## 快速开始
 
----
+```powershell
+# 1) Agent（Python 3.11+）
+cd apps\agent
+uv venv .venv                       # 或 python -m venv .venv
+uv pip install -r requirements.txt
+copy .env.example .env              # 填 DEEPSEEK_API_KEY（不填 = demo 模式）
+.venv\Scripts\python -m uvicorn agent.main:app --port 8100
 
-## 3. 功能清单
-
-### 基本流程
-- ✅ 空状态引导 + 4 个模板一键起跑（任务看板 / 记账本 / 习惯打卡 / 客户 CRM）
-- ✅ Agent 执行过程可视化：分步骤、带状态与细节（规划出的功能点、代码行数/KB、校验结果）
-- ✅ 流式生成：边生成边显示字符数进度，支持中途**停止**
-- ✅ 实时预览 + 设备切换（桌面/平板/手机）
-- ✅ 代码视图（带行号）+ 复制导出
-- ✅ **多轮对话修改**：修改模式会把当前源码回传给模型，产出新版本
-- ✅ 版本历史与**任意回滚**
-- ✅ 项目列表：新建/打开/删除，历史对话与版本全部从数据库恢复
-- ✅ 导出单文件 HTML、一键新标签打开
-
-### 延展能力（超出 PoC 的部分）
-- 🐞 **运行时控制台回传**：注入 hook 捕获生成应用的 `console.*`、`window.onerror`、`unhandledrejection`，显示在"控制台"面板；
-- 🛠 **一键「让 Agent 修复」**：把真实报错 + 源码交给模型定位修复，产出新版本（形成 agentic 闭环，而不是只生成一次）；
-- 🔁 **静态校验 + 自动修复循环**：结构性问题（截断、标签不配对、外链资源）自动重试，最多 2 轮；
-- 📴 **离线演示模式**：未配置 API Key 时用内置模板走同一条流水线，保证 Demo 永远能演示；
-- 🗄 **双驱动持久化**：本地 SQLite ⇄ 云端 libSQL/Turso，同一套 Store 接口，本地零配置、部署零改动。
-
----
-
-## 4. 技术栈与选型理由
-
-| 层 | 选择 | 理由 |
-| --- | --- | --- |
-| 框架 | Next.js 16（App Router）+ React 19 + TS | 一个仓库同时搞定页面与 API，SSE 流式直出，部署面广 |
-| 样式 | 手写 CSS 变量体系（无 UI 库） | Demo 的视觉辨识度是评分项，UI 库会拖成"模板脸"；也避免构建期联网下载字体 |
-| 模型 | DeepSeek `deepseek-chat`（OpenAI 兼容协议） | 中文指令遵循好、便宜、可换任意 OpenAI 兼容端点（改 `LLM_BASE_URL`/`LLM_MODEL` 即可） |
-| 流式协议 | SSE（`text/event-stream`）+ 自定义事件类型 | 比 WebSocket 简单，浏览器原生支持，事件可读性好 |
-| 存储 | `node:sqlite`（本地）／`@libsql/client`（云端） | 本地零依赖零编译；Serverless 环境切换成 Turso 的 8 行适配 |
-| 沙箱 | `iframe sandbox="allow-scripts allow-same-origin"` + `srcdoc` | 允许生成物用 localStorage 做持久化；同时注入了 console hook |
-
----
-
-## 5. 架构
-
-```
-src/
-├─ app/
-│  ├─ page.tsx                  # 单页工作台
-│  ├─ globals.css               # 设计系统（暗色）+ 响应式
-│  └─ api/
-│     ├─ health/route.ts        # 运行模式探测（live / demo、存储驱动）
-│     ├─ projects/route.ts      # 列表 / 新建
-│     ├─ projects/[id]/route.ts # 详情（消息+版本）/ 重命名 / 删除
-│     └─ generate/route.ts      # ★ Agent 流水线，SSE 流式输出
-├─ components/
-│  ├─ Studio.tsx                # 状态编排、SSE 解析、事件 → UI
-│  ├─ Sidebar.tsx  Composer.tsx  AgentCard.tsx
-│  ├─ PreviewPanel.tsx          # 预览 / 代码 / 控制台 / 版本
-│  └─ icons.tsx
-└─ lib/
-   ├─ llm.ts        # OpenAI 兼容客户端（流式 + 一次性）
-   ├─ prompts.ts    # 规划 / 生成 / 修改 / 修复 提示词 + JSON 兜底解析
-   ├─ validate.ts   # 生成代码静态校验（纯函数）
-   ├─ instrument.ts # 注入沙箱的 console/error hook
-   ├─ store.ts      # 存储接口 + sqlite/libsql 双驱动
-   ├─ demoTemplates.ts # 离线演示用内置应用
-   └─ types.ts
-```
-
-**数据模型**（3 张表，`projects` / `messages` / `versions`）
-- 消息里额外存了 `steps`（Agent 执行轨迹）与 `plan`（规划结果）的 JSON —— 所以刷新页面后，历史对话里的执行过程依然可以还原；
-- 版本是**不可变快照**，回滚只是切换 `activeVersionId` 重新渲染，不覆盖历史。
-
----
-
-## 6. 本地运行
-
-```bash
+# 2) Web（Node >= 22，本机用的是 24）
+cd apps\studio
 npm install
-cp .env.example .env.local     # 填入 DEEPSEEK_API_KEY（不填则进离线演示模式）
-npm run dev                    # http://localhost:3000
+copy .env.example .env.local        # 填 DEEPSEEK_API_KEY；AGENT_URL=http://127.0.0.1:8100
+npm run dev -- --port 3210
 ```
 
-验证脚本（会真实调用模型，跑完整链路：建项目 → 生成 → 修改 → 落库校验）：
+打开 http://localhost:3210 。`/api/health` 会告诉你当前是 `live` 还是 `demo`、数据库驱动、是否持久化。
+
+**AGENT_URL 的行为**：填了且 Agent `/health` 的 `ready=true` → 走 Python 服务；否则（没起服务 / 没密钥 / 超时 1.5s）→ 自动回落 Next 内置流水线，页面行为不变。
+
+根目录也有一组便捷脚本：`npm run dev`、`npm run build`、`npm test`、`npm run test:agent`、`npm run contract`（需先起 Agent）。
+
+## Agent 做了什么（不是"一次调模型"）
+
+| 阶段 | 内容 | 可观测产物 |
+|---|---|---|
+| 产品经理 | 把一句话需求拆成应用名 / 定位 / 3~5 个功能点 | `plan` 事件 + 步骤明细 |
+| 工程师 | 流式生成单文件 HTML（内联 CSS/JS、零外部依赖、localStorage 持久化） | `delta` 进度、行数/KB |
+| QA | 纯函数静态校验：DOCTYPE/闭合/标签配对/外链/alert/localStorage | `validate` 事件 + 问题清单 |
+| 工程师 · 修复 | 按问题清单重写完整文件，最多 2 轮 | 每轮 `step` 状态 |
+| 工程师 · 续写 | 撞上模型单次输出上限（约 8k tokens）时，从断点续写并拼接，最多 2 次 | 「续写被截断的尾部」步骤 |
+| 工作区 | 存版本、改项目名、写汇总消息 | `version` / `summary` 事件 |
+
+浏览器端额外获得的能力：代码/预览/控制台/版本四视图、版本回滚、导出与复制、中途停止、
+**控制台报错 → 一键让 Agent 修复**（把真实堆栈回传给 Agent 跑修复轮）。
+
+## 验证（都是实跑过的）
 
 ```bash
-npm test                           # 单元测试（node:test，零依赖，10 个用例，约 80ms）
-node scripts/verify.mjs            # 服务端 E2E：生成 + 增量修改 + 持久化
-node scripts/shot.mjs              # 浏览器 E2E：点模板 → 等生成 → 进 iframe 里真交互 → 截图
-node scripts/audit.mjs             # 布局审计 + 控制台回传 + 一键修复闭环 + 刷新恢复
+cd apps/studio
+npm test                    # 10 个单测：校验器 / 截断判定 / 汇总文案（node:test，~80ms）
+npm run lint                # eslint 0 error / 0 warning
+npm run build               # Next 16 standalone，6 条路由
+node scripts/verify.mjs http://localhost:3210    # 服务端 E2E：生成 + 增量修改 + 落库校验
+node scripts/audit.mjs     http://localhost:3210 # 布局审计 + 控制台回传修复闭环
+node scripts/shot.mjs      http://localhost:3210 # 浏览器 E2E + 截图（系统 Edge）
+
+cd apps/agent
+.venv/Scripts/python -m pytest -q                # 11 个单测：校验器 + 完整事件序列（假 LLM）
+cd ../../ && python packages/contract/check_contract.py http://127.0.0.1:8100   # 契约自检
 ```
 
-（`shot` / `audit` 用 `puppeteer-core` 驱动系统自带 Edge，不下载 Chromium，截图输出到 `scripts/.shots/`）
-
-构建：
-
-```bash
-npm run build && npm start
-```
-
-### 实测记录（本机 Windows 11 / i7-13700KF / Node 24 / deepseek-chat）
+最近一次实测（真实模型调用）：
 
 | 场景 | 结果 |
-| --- | --- |
-| 首轮生成「习惯打卡工具」 | 17.4s / 491 行 / 16.3 KB，静态校验 0 条问题 |
-| 首轮生成「团队任务看板」 | 19s / 590 行 / 22.1 KB，`localStorage` 已接入 |
-| 增量修改「改成绿色主题 + 加今日日期」 | 产出 v2，保留历史版本 |
-| 控制台报错 → 一键修复 | 36.4s 产出新版本，步骤显示「根据控制台报错定位问题 — 已重写并消除报错」 |
-| 浏览器内真实操作生成的应用 | 提交表单后 `localStorage` 写入 741 字节，刷新仍在 |
-| 页面 JS 错误 | 0 |
-| 布局 | 1440px 三栏 252/517/671 无横向滚动；390px 单栏 + 底部切换器无横向滚动 |
+|---|---|
+| 契约自检（Python Agent） | 598 行 / 15.4 KB / 16.3s / 事件序列合规 |
+| Web→Agent 全链路（打包产物） | 首轮 18s、增量修改产出 v2、4 条消息 / 2 个版本落库 |
+| Web 内置流水线（不依赖 Agent） | 496 行 / 17.5 KB / 18.6s，校验 0 问题 |
+| 单测 | studio 10/10、agent 11/11 |
 
-
----
-
-## 7. 部署（可测试在线链接）
-
-本项目是 **Next.js 16 + `node:sqlite`**，部署目标决定存储方案，两种都不改业务代码：
-
-| 部署目标 | 存储 | 改动量 |
-|---|---|---|
-| **阿里云 ECS / 轻量应用服务器**（推荐，有持久盘） | 本地 SQLite 文件 | 零改动，`node server.js` 就跑 |
-| Vercel / Serverless（无持久盘） | Turso（libSQL） | 零改动，配上 `TURSO_DATABASE_URL` 自动切换驱动 |
-
-### 7.1 阿里云 ECS（推荐）
-
-完整步骤（装 Node 24 / 上传 / .env / systemd / Nginx / 备份 / 更新发版 / 排障）见 **[`docs/aliyun-ecs.md`](docs/aliyun-ecs.md)**。最短路径：
-
-```powershell
-# 本地：产出可独立运行的目录并压缩（约 39MB → zip 12MB）
-npm run build
-node scripts/pack.mjs
-Compress-Archive -Path dist\atoms-demo -DestinationPath dist\atoms-demo.zip -Force
-scp dist\atoms-demo.zip root@<ECS公网IP>:/opt/
-```
+## 部署（阿里云 ECS）
 
 ```bash
-# 服务器（要求 Node >= 22.5，node:sqlite 依赖）
-cd /opt && apt-get install -y unzip && unzip -o atoms-demo.zip -d /opt
-cd /opt/atoms-demo && cp .env.example .env && nano .env    # 填 DEEPSEEK_API_KEY
-PORT=3000 node server.js
-curl -s localhost:3000/api/health
+# 本地打包（Web standalone + Agent + 安装脚本）
+npm --prefix apps/studio run build
+node scripts/pack.mjs                     # → dist/atoms-demo（含 agent/、contract/、install-ecs.sh）
+
+# 上传后（服务器上一条命令，装 Node 24 + python3-venv + 两个 systemd 服务 + 可选 Nginx）
+bash install-ecs.sh /opt/atoms-demo.zip --with-nginx
 ```
 
-安全组放行 `3000`（或 `80` 走 Nginx）→ 浏览器打开 `http://<公网IP>:3000` 即为可测试在线链接。
+细节见 [`docs/aliyun-ecs.md`](docs/aliyun-ecs.md)（含 SSE 反代必须 `proxy_buffering off`、安全组放行、数据目录独立于代码目录）。
 
-> Nginx 反代**必须加 `proxy_buffering off;`**，否则 SSE 会被缓冲成"一次性返回"，流式生成的演示效果全丢。
-> 大陆节点用域名 + 80/443 需要域名已备案；直接用 `IP:3000` 不需要。
+为什么不用函数计算 FC / Vercel 直接跑 Web：`node:sqlite` 需要持久磁盘，Serverless 上要换 Turso（Web 侧已支持，`TURSO_DATABASE_URL` 走 libSQL 驱动），但 Python Agent 是长连接 SSE，更适合常驻进程。
 
-### 7.2 备选：Vercel + Turso（Serverless）
+## 已知边界
 
-Serverless 文件系统只读，本地 SQLite 不适用，接 Turso（libSQL，免费额度足够）。**代码零改动**：`store.ts` 检测到 `TURSO_DATABASE_URL` 就自动切到 libSQL 驱动。
-
-建库（任选其一）：
-
-- 网页控制台 <https://turso.tech> → 新建 database → 复制 `libsql://…` 地址与 token
-- 命令行：
-
-```powershell
-irm https://get.tur.so/install.ps1 | iex
-turso auth signup
-turso db create atoms-demo
-turso db show atoms-demo --url          # → TURSO_DATABASE_URL
-turso db tokens create atoms-demo       # → TURSO_AUTH_TOKEN
-```
-
-部署：
-
-```powershell
-vercel login          # 邮箱登录即可
-vercel link           # 关联到新项目 atoms-demo
-vercel env add DEEPSEEK_API_KEY production
-vercel env add TURSO_DATABASE_URL production
-vercel env add TURSO_AUTH_TOKEN production
-vercel --prod
-```
-
-### 7.3 部署后自检
-
-```json
-{ "ok": true, "mode": "live", "model": "deepseek-chat", "store": "libsql:remote", "persistent": true }
-```
-
-- `mode` 为 `live` 表示模型已接通（否则是离线演示模式）；`persistent: true` 表示数据在持久存储上，重启不丢。
-- `generate` 路由已声明 `maxDuration = 300`：单次生成 15~40s，Vercel Fluid Compute 下 Hobby 计划上限即 300s，够用；若换成 60s 上限的平台，需要把生成长度压到 300 行以内或改成分段续写。ECS 自己跑进程没有这个限制。
-
-
-
----
-
-## 8. 已知取舍 / 下一步
-
-| 取舍 | 说明 | 下一步 |
-| --- | --- | --- |
-| 生成物是单文件 HTML | 追求"秒级可跑 + 可导出"，牺牲了多文件工程能力 | 演进为"文件树 + diff 应用"，在 WebContainer 里跑真正的 React/Next 工程 |
-| 沙箱同源 | `allow-same-origin` 让 localStorage 可用，但生成物与宿主同源 | 生产环境用独立域名 + CSP 隔离，或 Web Worker/WebContainer 执行 |
-| 修复循环最多 2 轮 | 控制成本与延迟，避免无限重试 | 引入"评估器 Agent"打分 + 按需多轮，或加视觉回归截图比对 |
-| 无登录 | 题目不作要求，单个实例共享一个工作区 | 加用户/租户维度，`projects` 挂 `owner_id` |
-| 单轮对话上下文只带当前版本源码 | 简单、可控 | 加检索式上下文（历史需求摘要），支持"回到 v2 但保留 v4 的配色" |
-
----
-
-## 9. 如果只有 6~8 小时，为什么是这些取舍
-
-1. **先做闭环，再做广度**：一条"输入 → 可视化结果 → 可交互 → 数据不丢"的主线，比十个半成品功能更能说明产品能力；
-2. **把不确定性留在模型侧、确定性留在本地**：静态校验是纯函数、可单测，模型抽风时能被拦下并自修复——这是 Demo 能被评委"随便点"的前提；
-3. **延展能力选"闭环型"而不是"堆功能型"**：控制台报错 → Agent 修复，一个功能就展示了"Agent 能持续工作"，而不是一次性生成器。
+- 生成物是**单文件 HTML**（不是 React 工程）：为的是 iframe 秒级预览、可导出、模型输出稳定；要生成工程需引入构建沙箱与预览编译。
+- 每轮修改是**整文件重写**而非 diff，文件越大越吃 token；>900 行会频繁触发续写兜底。
+- Agent 不读历史对话，只用「当前源码 + 这条指令」；"改回去"请用版本回滚。
+- SQLite 单写者：Web 只能单实例，不能多副本共享同一个 `data/` 目录。
+- 没有 prompt 注入防护（沙箱 iframe 已限制能力），正式产品还需输出白名单 + CSP。

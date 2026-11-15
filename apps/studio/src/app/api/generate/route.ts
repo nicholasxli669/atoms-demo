@@ -10,6 +10,7 @@ import {
 import { extractHtml, validateApp, type Issue } from "@/lib/validate";
 import { demoApp } from "@/lib/demoTemplates";
 import { buildSummary } from "@/lib/summary";
+import { agentHealthy, streamAgent } from "@/lib/agentClient";
 import { store } from "@/lib/store";
 import type { AgentEvent, Plan, Step, Version } from "@/lib/types";
 
@@ -95,6 +96,13 @@ export async function POST(req: Request) {
           else steps.push(step);
           push({ t: "step", key, label, status, detail });
         };
+
+        // 大仓模式：配置了 AGENT_URL 且 Python Agent 可用时，把 Agent 循环交给独立服务；
+        // 否则用内置流水线（没起 Python 服务、或没有模型密钥时依然能完整演示）。
+        if (await agentHealthy()) {
+          await runViaAgent(push, setStep, steps);
+          return;
+        }
 
         // 1) 记录用户消息
         await store.addMessage({ projectId, role: "user", content: message });
@@ -243,45 +251,78 @@ export async function POST(req: Request) {
           push({ t: "validate", ok: v.ok, issues: v.issues });
         }
 
-        // 5) 落库：版本 + 汇总消息 + 项目名
-        const existing = await store.listVersions(projectId, false);
-        const label = `v${existing.length + 1}`;
-        const warnCount = v.issues.filter((i) => i.level === "warn").length;
-        const summaryText = buildSummary({
-          plan,
+        // 5) 落库：版本 + 汇总消息 + 项目名（与 Agent 模式共用同一条落库逻辑）
+        await persistRun({
+          projectId,
+          projectName,
+          projectAppName,
           mode,
-          stats: v.stats,
-          warns: warnCount,
-          live,
-          ok: v.ok,
-          errors: v.issues.filter((i) => i.level === "error").map((e) => e.msg),
-        });
-
-        const version: Version = await store.addVersion({
-          projectId,
-          label,
-          code,
-          summary: plan.summary,
-        });
-        setStep("persist", "工作区 · 保存版本", "ok", `${label} · ${(Buffer.byteLength(code, "utf8") / 1024).toFixed(1)} KB`);
-
-        const autoRename =
-          mode === "new" && (projectName === "新应用" || projectName === projectAppName);
-        await store.updateProject(projectId, {
-          appName: plan.name,
-          ...(autoRename ? { name: plan.name } : {}),
-        });
-        await store.addMessage({
-          projectId,
-          role: "agent",
-          content: summaryText,
-          steps,
           plan,
-          versionId: version.id,
+          code,
+          ok: v.ok,
+          issues: v.issues.map((i) => ({ level: i.level, msg: i.msg })),
+          stats: v.stats,
+          live,
+          steps,
+          push,
+          setStep,
         });
+      }
 
-        push({ t: "version", version });
-        push({ t: "summary", text: summaryText });
+      /** 走 Python Agent：事件透传给浏览器，final 拿到的源码由 Web 落库。 */
+      async function runViaAgent(
+        push: (e: AgentEvent) => void,
+        setStep: (key: string, label: string, status: Step["status"], detail?: string) => void,
+        steps: Step[],
+      ) {
+        await store.addMessage({ projectId, role: "user", content: message });
+
+        const baseCode =
+          mode === "edit"
+            ? (body.baseCode && body.baseCode.length > 200
+                ? body.baseCode
+                : (await store.listVersions(projectId)).slice(-1)[0]?.code) || ""
+            : "";
+
+        const final = await streamAgent(
+          {
+            message,
+            mode,
+            baseCode,
+            appName: projectAppName || projectName,
+            runtimeLogs: body.runtimeLogs,
+          },
+          (event) => {
+            if (event.t === "step") {
+              const i = steps.findIndex((s) => s.key === event.key);
+              const step: Step = {
+                key: event.key,
+                label: event.label,
+                status: event.status,
+                detail: event.detail,
+              };
+              if (i >= 0) steps[i] = { ...steps[i], ...step };
+              else steps.push(step);
+            }
+            if (event.t !== "final") push(event as AgentEvent);
+          },
+        );
+
+        await persistRun({
+          projectId,
+          projectName,
+          projectAppName,
+          mode,
+          plan: final.plan,
+          code: final.code,
+          ok: final.ok,
+          issues: final.issues,
+          stats: final.stats,
+          live: true,
+          steps,
+          push,
+          setStep,
+        });
       }
 
       async function repairOnce(
@@ -321,6 +362,72 @@ export async function POST(req: Request) {
       "X-Accel-Buffering": "no",
     },
   });
+}
+
+interface PersistInput {
+  projectId: string;
+  projectName: string;
+  projectAppName: string | null;
+  mode: "new" | "edit";
+  plan: Plan;
+  code: string;
+  ok: boolean;
+  issues: { level: string; msg: string }[];
+  stats: { lines: number; bytes: number; hasStorage: boolean };
+  live: boolean;
+  steps: Step[];
+  push: (e: AgentEvent) => void;
+  setStep: (key: string, label: string, status: Step["status"], detail?: string) => void;
+}
+
+/**
+ * 一次运行的收尾：存版本 → 改项目名 → 存 Agent 消息 → 推 version/summary。
+ * 内置流水线与 Python Agent 两条路都走这里，避免落库逻辑分叉。
+ */
+async function persistRun(o: PersistInput): Promise<void> {
+  const existing = await store.listVersions(o.projectId, false);
+  const label = `v${existing.length + 1}`;
+  const warns = o.issues.filter((i) => i.level === "warn").length;
+  const summaryText = buildSummary({
+    plan: o.plan,
+    mode: o.mode,
+    stats: o.stats,
+    warns,
+    live: o.live,
+    ok: o.ok,
+    errors: o.issues.filter((i) => i.level === "error").map((i) => i.msg),
+  });
+
+  const version: Version = await store.addVersion({
+    projectId: o.projectId,
+    label,
+    code: o.code,
+    summary: o.plan.summary,
+  });
+  o.setStep(
+    "persist",
+    "工作区 · 保存版本",
+    "ok",
+    `${label} · ${(Buffer.byteLength(o.code, "utf8") / 1024).toFixed(1)} KB`,
+  );
+
+  const autoRename =
+    o.mode === "new" && (o.projectName === "新应用" || o.projectName === o.projectAppName);
+  await store.updateProject(o.projectId, {
+    appName: o.plan.name,
+    ...(autoRename ? { name: o.plan.name } : {}),
+  });
+  await store.addMessage({
+    projectId: o.projectId,
+    role: "agent",
+    content: summaryText,
+    steps: o.steps,
+    plan: o.plan,
+    versionId: version.id,
+  });
+
+  o.push({ t: "version", version });
+  o.push({ t: "summary", text: summaryText });
 }
 
 
