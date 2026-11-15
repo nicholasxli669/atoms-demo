@@ -1,0 +1,11 @@
+
+> atoms-demo@0.1.0 start
+> next start -p 3002
+
+▲ Next.js 16.4.6
+- Local:         http://localhost:3002
+- Network:       http://192.168.3.48:3002
+✓ Ready in 159ms
+✓ Running next.config.ts took 24ms
+(node:17392) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
