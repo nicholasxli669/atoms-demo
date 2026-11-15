@@ -345,7 +345,17 @@ export default function Studio() {
             runtimeLogs: opts?.runtimeLogs,
           }),
         });
-        if (!res.ok || !res.body) throw new Error((await res.text()).slice(0, 200));
+        if (!res.ok || !res.body) {
+          const raw = await res.text();
+          let msg = raw.slice(0, 200);
+          try {
+            const parsed = JSON.parse(raw) as { error?: string };
+            if (parsed?.error) msg = parsed.error;
+          } catch {
+            /* 非 JSON（比如网关错误页），保留原文 */
+          }
+          throw new Error(msg);
+        }
 
         const reader = res.body.getReader();
         const dec = new TextDecoder();

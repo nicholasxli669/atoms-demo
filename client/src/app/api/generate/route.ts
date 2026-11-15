@@ -27,6 +27,13 @@ interface Body {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * 同一项目的进行中标记：两轮同时生成会互相覆盖版本号、项目名与消息顺序。
+ * 单实例部署（SQLite 单写者）下用内存锁足够；超过 maxDuration 视为僵死锁直接接管。
+ */
+const inFlight = new Map<string, number>();
+const LOCK_TTL_MS = 330_000;
+
 function guessName(prompt: string): string {
   const clean = prompt.replace(/[，。,.!?！？\s]+/g, "").slice(0, 12);
   return clean || "未命名应用";
@@ -58,6 +65,15 @@ export async function POST(req: Request) {
   const projectName: string = found.name;
   const projectAppName: string | null = found.appName;
 
+  const busySince = inFlight.get(projectId);
+  if (busySince !== undefined && Date.now() - busySince < LOCK_TTL_MS) {
+    return Response.json(
+      { error: "这个项目正在生成中，等这一轮结束再发送" },
+      { status: 409 },
+    );
+  }
+  inFlight.set(projectId, Date.now());
+
   const live = llmReady();
   const encoder = new TextEncoder();
   const state = { closed: false };
@@ -82,6 +98,7 @@ export async function POST(req: Request) {
         push({ t: "error", message: msg.slice(0, 400) });
       } finally {
         push({ t: "end" });
+        inFlight.delete(projectId);
         try {
           controller.close();
         } catch {
@@ -374,6 +391,7 @@ export async function POST(req: Request) {
     cancel() {
       state.closed = true;
       abort.abort();
+      inFlight.delete(projectId);
     },
   });
 
@@ -408,8 +426,6 @@ interface PersistInput {
  * 内置流水线与 Python Agent 两条路都走这里，避免落库逻辑分叉。
  */
 async function persistRun(o: PersistInput): Promise<void> {
-  const existing = await store.listVersions(o.projectId, false);
-  const label = `v${existing.length + 1}`;
   const warns = o.issues.filter((i) => i.level === "warn").length;
   const summaryText = buildSummary({
     plan: o.plan,
@@ -423,10 +439,10 @@ async function persistRun(o: PersistInput): Promise<void> {
 
   const version: Version = await store.addVersion({
     projectId: o.projectId,
-    label,
     code: o.code,
     summary: o.plan.summary,
   });
+  const label = version.label; // 版本号由 store 在 SQL 里原子分配，避免并发撞号
   o.setStep(
     "persist",
     "工作区 · 保存版本",

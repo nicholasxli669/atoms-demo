@@ -341,23 +341,31 @@ export const store = {
     return rows[0] ? toVersion(rows[0]) : null;
   },
 
+  /**
+   * 存版本。label 省略时在 SQL 里原子分配（v1、v2、…）：
+   * 并发写同一个项目时，SQLite 串行化写事务，后到的语句能看见前一条已插入的行，
+   * 因此不会出现"两次生成都算出 v3"的撞号。调用方不要自己数版本号再传 label。
+   */
   async addVersion(v: {
     projectId: string;
-    label: string;
+    label?: string;
     code: string;
     summary?: string | null;
   }): Promise<Version> {
     const d = await getDriver();
     const now = Date.now();
     const { lastInsertRowid } = await d.run(
-      `INSERT INTO versions (project_id, label, code, summary, created_at) VALUES (?, ?, ?, ?, ?)`,
-      [v.projectId, v.label, v.code, v.summary ?? null, now],
+      `INSERT INTO versions (project_id, label, code, summary, created_at)
+       VALUES (?, COALESCE(?, (SELECT 'v' || (COUNT(*) + 1) FROM versions WHERE project_id = ?)), ?, ?, ?)`,
+      [v.projectId, v.label ?? null, v.projectId, v.code, v.summary ?? null, now],
     );
     await this.touchProject(v.projectId);
+    const rows = await d.all(`SELECT label FROM versions WHERE id = ?`, [lastInsertRowid]);
+    const label = (rows[0] as { label?: string } | undefined)?.label ?? v.label ?? "";
     return {
       id: lastInsertRowid,
       projectId: v.projectId,
-      label: v.label,
+      label,
       code: v.code,
       summary: v.summary ?? null,
       createdAt: now,
