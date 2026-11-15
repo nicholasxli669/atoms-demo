@@ -131,6 +131,7 @@ npm run dev                    # http://localhost:3000
 验证脚本（会真实调用模型，跑完整链路：建项目 → 生成 → 修改 → 落库校验）：
 
 ```bash
+npm test                           # 单元测试（node:test，零依赖，10 个用例，约 80ms）
 node scripts/verify.mjs            # 服务端 E2E：生成 + 增量修改 + 持久化
 node scripts/shot.mjs              # 浏览器 E2E：点模板 → 等生成 → 进 iframe 里真交互 → 截图
 node scripts/audit.mjs             # 布局审计 + 控制台回传 + 一键修复闭环 + 刷新恢复
