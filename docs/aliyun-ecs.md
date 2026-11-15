@@ -63,6 +63,16 @@ chmod 600 .env
 
 ## 4. 先用前台跑通，再挂守护进程
 
+> **想一条命令搞定？** 上传 `atoms-demo.zip` 和 `scripts/install-ecs.sh` 到服务器后：
+> ```bash
+> bash install-ecs.sh /opt/atoms-demo.zip --with-nginx
+> ```
+> 它会自动装 Node 24、解压到 `/opt/atoms-demo`、交互式问你 API Key、写 systemd 常驻、反代 80、最后自检并打印访问地址。
+> 数据固定放 `/opt/atoms-demo-data`（在代码目录之外，更新/回滚都不会动数据）。
+> 更新发版用 `bash install-ecs.sh /opt/atoms-demo.zip --update`。
+
+手动方式（便于排查）：
+
 ```bash
 cd /opt/atoms-demo
 PORT=3000 node server.js
