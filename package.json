@@ -8,9 +8,9 @@
     "build": "npm --prefix client run build",
     "lint": "npm --prefix client run lint",
     "test": "npm --prefix client test",
-    "test:server": "python -m pytest -q server",
-    "dev:server": "python -m uvicorn agent.main:app --app-dir server --port 8100 --reload",
-    "contract": "python packages/contract/check_contract.py http://127.0.0.1:8100",
+    "dev:server": "node scripts/py.mjs -m uvicorn agent.main:app --app-dir server --port 8100",
+    "test:server": "node scripts/py.mjs -m pytest -q server",
+    "contract": "node scripts/py.mjs packages/contract/check_contract.py http://127.0.0.1:8100",
     "pack": "node scripts/pack.mjs"
   },
   "engines": {

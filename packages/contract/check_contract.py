@@ -3,6 +3,9 @@
 用法：
     .venv/Scripts/python.exe ../../packages/contract/check_contract.py http://127.0.0.1:8100
 退出码 0 = 契约通过；1 = 违约（会打印哪一条不对）。
+
+注意：本脚本是"成功路径"冒烟测试，要求以 final 收尾。
+契约允许失败运行以 error 收尾（此时本脚本会判为失败，属预期——说明这次运行本身没成功）。
 """
 
 from __future__ import annotations

@@ -49,7 +49,20 @@ npm run dev -- --port 3210
 
 **AGENT_URL 的行为**：填了且 server `/health` 的 `ready=true` → 走 Python 服务；否则（没起服务 / 没密钥 / 超时 1.5s）→ 自动回落 client 内置流水线，页面行为不变。
 
-根目录便捷脚本：`npm run dev`、`npm run build`、`npm test`、`npm run test:server`、`npm run dev:server`、`npm run contract`、`npm run pack`。
+根目录便捷脚本（`dev:server` / `test:server` / `contract` 会自动用 `server/.venv` 里的 Python，不会误用系统 python）：
+
+```bash
+npm run dev            # 起 client
+npm run dev:server     # 起 server（读 server/.env）
+npm test               # client 单测
+npm run test:server    # server 单测
+npm run contract       # 契约自检（需先起 server，会真调一次模型）
+npm run pack           # 打部署包
+```
+
+`server/.env` 会被 `agent/config.py` 自动加载（已存在的环境变量优先，systemd 注入不会被覆盖）；文件用 UTF-8 带不带 BOM 都行。
+
+`GET /api/health` 会给出链路实况：`mode`（live/demo）、`store`（sqlite/libsql）、`persistent`、`agent`（`ok` = Python Agent 可用 / `off` = 没配 AGENT_URL / `down` = 配了但连不上）。
 
 ## Agent 做了什么（不是"一次调模型"）
 

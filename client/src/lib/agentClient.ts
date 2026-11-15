@@ -23,20 +23,30 @@ export interface AgentRunBody {
   runtimeLogs?: string[];
 }
 
+/** 探测结果缓存：Agent 挂掉时不要在每次生成前都白等 1.5s */
+let healthCache: { at: number; ok: boolean } | null = null;
+
 /** Agent 是否可用：既要通，也要有模型密钥（没密钥时让 Web 走内置演示流水线） */
-export async function agentHealthy(timeoutMs = 1500): Promise<boolean> {
+export async function agentHealthy(timeoutMs = 1500, ttlMs = 5000): Promise<boolean> {
   if (!BASE) return false;
+  const now = Date.now();
+  if (healthCache && now - healthCache.at < ttlMs) return healthCache.ok;
+
+  let ok = false;
   try {
     const res = await fetch(`${BASE}/health`, {
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),
     });
-    if (!res.ok) return false;
-    const info = (await res.json()) as { ok?: boolean; ready?: boolean };
-    return info.ok === true && info.ready === true;
+    if (res.ok) {
+      const info = (await res.json()) as { ok?: boolean; ready?: boolean };
+      ok = info.ok === true && info.ready === true;
+    }
   } catch {
-    return false;
+    ok = false;
   }
+  healthCache = { at: now, ok };
+  return ok;
 }
 
 /**

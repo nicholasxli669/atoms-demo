@@ -61,6 +61,8 @@ export async function POST(req: Request) {
   const live = llmReady();
   const encoder = new TextEncoder();
   const state = { closed: false };
+  // 用户点「停止」时用它掐断对 Agent 的请求，避免 Python 侧继续烧 token
+  const abort = new AbortController();
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -251,6 +253,9 @@ export async function POST(req: Request) {
           push({ t: "validate", ok: v.ok, issues: v.issues });
         }
 
+        // 用户中途停止：不落库，避免"界面显示已取消、库里却多出一版"
+        if (state.closed) return;
+
         // 5) 落库：版本 + 汇总消息 + 项目名（与 Agent 模式共用同一条落库逻辑）
         await persistRun({
           projectId,
@@ -284,29 +289,46 @@ export async function POST(req: Request) {
                 : (await store.listVersions(projectId)).slice(-1)[0]?.code) || ""
             : "";
 
-        const final = await streamAgent(
-          {
-            message,
-            mode,
-            baseCode,
-            appName: projectAppName || projectName,
-            runtimeLogs: body.runtimeLogs,
-          },
-          (event) => {
-            if (event.t === "step") {
-              const i = steps.findIndex((s) => s.key === event.key);
-              const step: Step = {
-                key: event.key,
-                label: event.label,
-                status: event.status,
-                detail: event.detail,
-              };
-              if (i >= 0) steps[i] = { ...steps[i], ...step };
-              else steps.push(step);
-            }
-            if (event.t !== "final") push(event as AgentEvent);
-          },
-        );
+        let final: Awaited<ReturnType<typeof streamAgent>>;
+        try {
+          final = await streamAgent(
+            {
+              message,
+              mode,
+              baseCode,
+              appName: projectAppName || projectName,
+              runtimeLogs: body.runtimeLogs,
+            },
+            (event) => {
+              if (event.t === "step") {
+                const i = steps.findIndex((s) => s.key === event.key);
+                const step: Step = {
+                  key: event.key,
+                  label: event.label,
+                  status: event.status,
+                  detail: event.detail,
+                };
+                if (i >= 0) steps[i] = { ...steps[i], ...step };
+                else steps.push(step);
+              }
+              if (event.t !== "final") push(event as AgentEvent);
+            },
+            abort.signal,
+          );
+        } catch (e) {
+          if (state.closed) return; // 用户主动停止：不落库、不报错
+          // 失败时补一条 agent 消息，保证 messages 里 user/agent 成对（刷新后不留孤立的提问）
+          const msg = e instanceof Error ? e.message : String(e);
+          await store.addMessage({
+            projectId,
+            role: "agent",
+            content: `生成失败：${msg.slice(0, 200)}`,
+            steps,
+          });
+          throw e;
+        }
+
+        if (state.closed) return;
 
         await persistRun({
           projectId,
@@ -351,6 +373,7 @@ export async function POST(req: Request) {
     },
     cancel() {
       state.closed = true;
+      abort.abort();
     },
   });
 

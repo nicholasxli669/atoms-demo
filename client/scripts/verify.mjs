@@ -117,7 +117,7 @@ async function main() {
   const s2 = summarize(ev2);
   if (!s2.version) bad("修改没有产出新版本");
   else {
-    ok(`新版本 v${s2.version.id} · ${s2.version.code.length} 字符 · 保留历史：${s2.version.code !== code ? "是" : "内容未变化"}`);
+    ok(`新版本 ${s2.version.label} · ${s2.version.code.length} 字符 · 保留历史：${s2.version.code !== code ? "是" : "内容未变化"}`);
     fs.writeFileSync(path.join(OUT, "v2.html"), s2.version.code, "utf8");
   }
 

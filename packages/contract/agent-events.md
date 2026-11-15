@@ -39,7 +39,7 @@ client 只在 `ok=true 且 ready=true` 时走 server；否则回落到自身内�
 
 约束（`packages/contract/check_contract.py` 会逐条检查）：
 
-1. 首事件必须是 `start`，末事件必须是 `final`
+1. 首事件必须是 `start`；正常跑完以 `final` 收尾，异常/取消以 `error` 收尾（不允许无终止地断开）
 2. `final` 必须且只能出现一次
 3. `final.ok = true` 时 `code` 必须以 `</html>` 结尾且 ≥ 500 字节
 4. server **不发送** `version / summary / end`——这些由 client 生成
