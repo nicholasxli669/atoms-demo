@@ -66,12 +66,33 @@ export function editMessages(opts: {
       role: "user",
       content: `下面是一个已经能运行的 Web 应用源码。请在它的基础上按用户的新要求修改，输出**修改后的完整文件**（不是 diff）。
 修改原则：只做用户要求的改动，保留其它已有功能和整体视觉风格；除非必要不要推倒重写。
+体量控制（重要）：现有功能一个都不能丢。若加入新功能后总行数要超过 700 行，请压缩重复的 CSS 与示例数据来实现，
+绝不允许删掉已有功能，也绝不允许在 </html> 之前停下——输出被截断会导致整个应用不可用。
 
 【用户的新要求】
 ${opts.instruction}
 
 【当前源码】
 ${opts.prevCode}`,
+    },
+  ];
+}
+
+/**
+ * 截断续写：模型单次输出上限（deepseek-chat 约 8k tokens）会把长文件截断在半途，
+ * 此时让它从截断处继续输出剩余部分，再把两段拼接，比"整篇重写"成功率更高。
+ */
+export function continueMessages(tail: string): ChatMsg[] {
+  return [
+    { role: "system", content: CODE_SYSTEM },
+    {
+      role: "user",
+      content: `下面是一份 HTML 源码**被截断的末尾片段**（不是开头，没有 </html>）。
+请**紧接着最后那个字符继续输出剩余内容**，直到补完 </html>。
+要求：不要重复已经输出过的代码，不要重新开始，不要任何解释或代码围栏，直接接着写。
+
+【已输出的末尾片段】
+${tail}`,
     },
   ];
 }

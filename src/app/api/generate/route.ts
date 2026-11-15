@@ -1,5 +1,12 @@
 import { llmReady, chatOnce, chatStream } from "@/lib/llm";
-import { planMessages, codeMessages, editMessages, repairMessages, parsePlan } from "@/lib/prompts";
+import {
+  planMessages,
+  codeMessages,
+  editMessages,
+  repairMessages,
+  continueMessages,
+  parsePlan,
+} from "@/lib/prompts";
 import { extractHtml, validateApp, type Issue } from "@/lib/validate";
 import { demoApp } from "@/lib/demoTemplates";
 import { store } from "@/lib/store";
@@ -203,6 +210,34 @@ export async function POST(req: Request) {
             `工程师 · 自动修复第 ${round} 轮`,
             v.ok ? "ok" : "err",
             v.ok ? "校验通过" : v.issues.filter((i) => i.level === "error").map((e) => e.msg).join("；"),
+          );
+          push({ t: "validate", ok: v.ok, issues: v.issues });
+        }
+
+        // 4.5) 截断恢复：模型单次输出上限（约 8k tokens）会把长文件截断在半途，
+        //      特征是代码里根本没有 </html>。此时让模型从断点续写并拼接，比反复整篇重写更容易收敛。
+        let cont = 0;
+        const isTruncated = () => !/<\/html>\s*$/i.test(code.trim());
+        while (!v.ok && isTruncated() && cont < 2 && live) {
+          cont += 1;
+          setStep("repair", `工程师 · 续写被截断的尾部（第 ${cont} 次）`, "run");
+          let more = "";
+          for await (const d of chatStream(continueMessages(code.slice(-4000)), {
+            maxTokens: 8000,
+            temperature: 0.15,
+          })) {
+            more += d;
+            push({ t: "delta", chars: code.length + more.length });
+          }
+          code = extractHtml(code + more);
+          v = validateApp(code);
+          setStep(
+            "repair",
+            `工程师 · 续写被截断的尾部（第 ${cont} 次）`,
+            v.ok ? "ok" : "err",
+            v.ok
+              ? `${v.stats.lines} 行 · 续写后已闭环`
+              : v.issues.filter((i) => i.level === "error").map((e) => e.msg).join("；"),
           );
           push({ t: "validate", ok: v.ok, issues: v.issues });
         }
