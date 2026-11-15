@@ -117,8 +117,17 @@ export default function Studio() {
   }, []);
 
   useEffect(() => {
-    void refreshProjects();
-  }, [refreshProjects]);
+    let alive = true;
+    fetch("/api/projects", { cache: "no-store" })
+      .then((r) => r.json() as Promise<{ projects: Project[] }>)
+      .then((d) => {
+        if (alive) setProjects(d.projects ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   /* ------------------------ 沙箱消息监听 ------------------------ */
 
@@ -430,12 +439,26 @@ export default function Studio() {
 
   const copyCode = useCallback(async () => {
     if (!code) return;
+    // 非安全上下文（http 局域网）或未授权时 navigator.clipboard 不可用，回退到 execCommand
+    const legacyCopy = () => {
+      const ta = document.createElement("textarea");
+      ta.value = code;
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;top:-9999px;opacity:0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    };
+    let copied = false;
     try {
       await navigator.clipboard.writeText(code);
-      toast("源码已复制到剪贴板");
+      copied = true;
     } catch {
-      toast("复制失败：浏览器未授权剪贴板");
+      copied = legacyCopy();
     }
+    toast(copied ? "源码已复制到剪贴板" : "复制失败，请手动全选源码");
   }, [code, toast]);
 
   const fixFromConsole = useCallback(() => {
