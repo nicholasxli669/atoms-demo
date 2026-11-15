@@ -2,15 +2,16 @@
   "name": "atoms-demo",
   "private": true,
   "version": "0.1.0",
-  "description": "Atoms Studio 大仓：Web 工作台（Next.js）+ Agent 服务（Python/FastAPI）",
+  "description": "Atoms Demo 大仓：client（Next.js 工作台）+ server（Python Agent 服务）",
   "scripts": {
-    "dev": "npm --prefix apps/studio run dev",
-    "build": "npm --prefix apps/studio run build",
-    "lint": "npm --prefix apps/studio run lint",
-    "test": "npm --prefix apps/studio test",
-    "test:agent": "python -m pytest -q apps/agent",
+    "dev": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "lint": "npm --prefix client run lint",
+    "test": "npm --prefix client test",
+    "test:server": "python -m pytest -q server",
+    "dev:server": "python -m uvicorn agent.main:app --app-dir server --port 8100 --reload",
     "contract": "python packages/contract/check_contract.py http://127.0.0.1:8100",
-    "dev:agent": "python -m uvicorn agent.main:app --app-dir apps/agent --port 8100 --reload"
+    "pack": "node scripts/pack.mjs"
   },
   "engines": {
     "node": ">=22"

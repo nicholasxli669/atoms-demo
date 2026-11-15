@@ -1,9 +1,9 @@
 # Agent 服务事件契约（v1）
 
-两个服务共同遵守这一份契约：**Web（apps/studio）** 负责产品与状态，**Agent（apps/agent）** 负责"想 + 写 + 自检"。
+两端共同遵守这一份契约：**client/（Next.js）** 负责产品与状态，**server/（Python Agent）** 负责"想 + 写 + 自检"。
 
 ```
-浏览器 ──POST /api/generate(SSE)──▶ Next.js(studio) ──POST /v1/run(SSE)──▶ Python Agent
+浏览器 ──POST /api/generate(SSE)──▶ client/Next.js ──POST /v1/run(SSE)──▶ server/Python Agent
                                       │                                        │
                                       │◀── start/step/plan/delta/validate/final ┘
                                       ├─ 落库（projects/messages/versions）
@@ -23,9 +23,9 @@
 | `runtimeLogs` | string[] | | 浏览器控制台报错，会作为修复上下文 |
 
 `GET {AGENT_URL}/health` → `{ ok, service, version, model, mode: "live"|"demo", ready }`
-Web 只在 `ok=true 且 ready=true` 时走 Agent；否则回落到自身内置流水线（无密钥也能演示）。
+client 只在 `ok=true 且 ready=true` 时走 server；否则回落到自身内置流水线（无密钥也能演示）。
 
-## 2. Agent → Web 事件（SSE，`data: {json}\n\n`）
+## 2. server → client 事件（SSE，`data: {json}\n\n`）
 
 | `t` | 载荷 | 说明 |
 |---|---|---|
@@ -34,7 +34,7 @@ Web 只在 `ok=true 且 ready=true` 时走 Agent；否则回落到自身内置�
 | `plan` | `plan: {name, summary, features[]}` | 方案确定 |
 | `delta` | `chars: number` | **只发进度（字符数），不传正文**，避免大文件反复序列化 |
 | `validate` | `ok: boolean, issues: {level, msg}[]` | 每次校验后都会发 |
-| `final` | `code, plan, mode, ok, issues[], stats{lines,bytes,hasStorage,external}` | **必定是最后一条**；Web 用它落库 |
+| `final` | `code, plan, mode, ok, issues[], stats{lines,bytes,hasStorage,external}` | **必定是最后一条**；client 用它落库 |
 | `error` | `message: string` | 允许中途出现；出现后仍会有 `final` 或连接结束 |
 
 约束（`packages/contract/check_contract.py` 会逐条检查）：
@@ -42,13 +42,13 @@ Web 只在 `ok=true 且 ready=true` 时走 Agent；否则回落到自身内置�
 1. 首事件必须是 `start`，末事件必须是 `final`
 2. `final` 必须且只能出现一次
 3. `final.ok = true` 时 `code` 必须以 `</html>` 结尾且 ≥ 500 字节
-4. Agent **不发送** `version / summary / end`——这些由 Web 生成
-5. Agent 无状态：不写数据库、不存文件
+4. server **不发送** `version / summary / end`——这些由 client 生成
+5. server 无状态：不写数据库、不存文件
 
-## 3. Web → 浏览器事件
+## 3. client → 浏览器事件
 
-沿用原有客户端协议：Agent 的事件原样透传（`start/step/plan/delta/validate/error`），
-末尾由 Web 追加 `version`（落库后的版本对象）、`summary`（人话总结）、`end`。
+沿用原有客户端协议：server 的事件原样透传（`start/step/plan/delta/validate/error`），
+末尾由 client 追加 `version`（落库后的版本对象）、`summary`（人话总结）、`end`。
 
 ## 4. 判据必须一致
 
@@ -57,4 +57,4 @@ Web 只在 `ok=true 且 ready=true` 时走 Agent；否则回落到自身内置�
 - 错误：输出 < 500 字节、缺 `<!doctype>/<html>`、缺 `</html>`、缺 `<body>`、`<script>`/`<style>` 标签不配对
 - 建议：无样式表、无脚本、无 localStorage、引用外部资源、使用 `alert()/prompt()`
 
-单测：`apps/studio/tests/validate.test.ts` ↔ `apps/agent/tests/test_validate.py`（同一组用例）
+单测：`client/tests/validate.test.ts` ↔ `server/tests/test_validate.py`（同一组用例）

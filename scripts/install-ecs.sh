@@ -42,19 +42,21 @@ fi
 info "Node $(node -v) / Python $(python3 -V 2>&1 | awk '{print $2}')"
 
 # ---------- 3. 解压代码（数据目录独立，升级不丢数据） ----------
+# 包结构：client/（Next 产物） + server/（Python Agent） + contract/
 info "解压到 $APP_DIR"
 mkdir -p "$APP_DIR" "$DATA_DIR_PATH"
 TMP_DIR="$(mktemp -d)"
 unzip -q -o "$ZIP_PATH" -d "$TMP_DIR"
-SRC_DIR="$(find "$TMP_DIR" -maxdepth 2 -name server.js -printf '%h' | head -1)"
-[[ -n "$SRC_DIR" ]] || die "压缩包里没找到 server.js"
-# 保留 .env 与 agent/.venv，其余覆盖
+SERVER_JS="$(find "$TMP_DIR" -maxdepth 3 -name server.js | head -1)"
+[[ -n "$SERVER_JS" ]] || die "压缩包里没找到 client/server.js"
+PKG_DIR="$(dirname "$(dirname "$SERVER_JS")")"   # server.js 位于 <包>/client/ 下
+# 保留 .env 与 server/.venv，其余覆盖
 if [[ -f "$APP_DIR/.env" ]]; then cp "$APP_DIR/.env" "$TMP_DIR/keep.env"; fi
-if [[ -d "$APP_DIR/agent/.venv" ]]; then mv "$APP_DIR/agent/.venv" "$TMP_DIR/keep-venv"; fi
-rm -rf "$APP_DIR"/{server.js,.next,node_modules,public,agent,contract,install-ecs.sh,START-HERE.txt,.env.example}
-cp -a "$SRC_DIR"/. "$APP_DIR"/
+if [[ -d "$APP_DIR/server/.venv" ]]; then mv "$APP_DIR/server/.venv" "$TMP_DIR/keep-venv"; fi
+rm -rf "$APP_DIR"/{client,server,contract,install-ecs.sh,START-HERE.txt,.env.example}
+cp -a "$PKG_DIR"/. "$APP_DIR"/
 if [[ -f "$TMP_DIR/keep.env" ]]; then cp "$TMP_DIR/keep.env" "$APP_DIR/.env"; fi
-if [[ -d "$TMP_DIR/keep-venv" ]]; then mv "$TMP_DIR/keep-venv" "$APP_DIR/agent/.venv"; fi
+if [[ -d "$TMP_DIR/keep-venv" ]]; then mv "$TMP_DIR/keep-venv" "$APP_DIR/server/.venv"; fi
 rm -rf "$TMP_DIR"
 
 # ---------- 4. 配置文件 ----------
@@ -80,12 +82,12 @@ if grep -qE '^DEEPSEEK_API_KEY=$' "$APP_DIR/.env"; then
 fi
 
 # ---------- 5. Python Agent 依赖 ----------
-info "安装 Agent 依赖（venv）"
-if [[ ! -x "$APP_DIR/agent/.venv/bin/python" ]]; then
-  python3 -m venv "$APP_DIR/agent/.venv"
+info "安装 Agent 依赖（server/.venv）"
+if [[ ! -x "$APP_DIR/server/.venv/bin/python" ]]; then
+  python3 -m venv "$APP_DIR/server/.venv"
 fi
-"$APP_DIR/agent/.venv/bin/pip" install -q --upgrade pip
-"$APP_DIR/agent/.venv/bin/pip" install -q -r "$APP_DIR/agent/requirements.txt"
+"$APP_DIR/server/.venv/bin/pip" install -q --upgrade pip
+"$APP_DIR/server/.venv/bin/pip" install -q -r "$APP_DIR/server/requirements.txt"
 
 # ---------- 6. systemd：两个服务 ----------
 info "写入 systemd 服务"
@@ -97,10 +99,10 @@ After=network.target
 [Service]
 Type=simple
 User=${RUN_USER}
-WorkingDirectory=${APP_DIR}/agent
+WorkingDirectory=${APP_DIR}/server
 EnvironmentFile=${APP_DIR}/.env
 Environment=AGENT_PORT=${AGENT_PORT}
-ExecStart=${APP_DIR}/agent/.venv/bin/python -m uvicorn agent.main:app --host 127.0.0.1 --port ${AGENT_PORT}
+ExecStart=${APP_DIR}/server/.venv/bin/python -m uvicorn agent.main:app --host 127.0.0.1 --port ${AGENT_PORT}
 Restart=always
 RestartSec=3
 StandardOutput=append:/var/log/atoms-agent.log
@@ -119,11 +121,11 @@ Wants=atoms-agent.service
 [Service]
 Type=simple
 User=${RUN_USER}
-WorkingDirectory=${APP_DIR}
+WorkingDirectory=${APP_DIR}/client
 EnvironmentFile=${APP_DIR}/.env
 Environment=PORT=${WEB_PORT}
 Environment=NODE_ENV=production
-ExecStart=/usr/bin/node ${APP_DIR}/server.js
+ExecStart=/usr/bin/node ${APP_DIR}/client/server.js
 Restart=always
 RestartSec=3
 StandardOutput=append:/var/log/atoms-web.log

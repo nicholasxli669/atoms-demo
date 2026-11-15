@@ -1,4 +1,5 @@
-# 大仓（monorepo）：apps/studio = Next.js，apps/agent = Python
+# 大仓（monorepo）：client = Next.js 工作台，server = Python Agent 服务
+
 # 依赖
 node_modules/
 .pnp.*
@@ -20,7 +21,7 @@ dist/
 build/
 
 # Python
-apps/agent/.venv/
+server/.venv/
 .venv/
 __pycache__/
 *.pyc
@@ -35,7 +36,7 @@ __pycache__/
 
 # 运行时数据（SQLite）
 data/
-apps/studio/data/
+client/data/
 
 # 日志与临时
 *.log
@@ -49,5 +50,3 @@ yarn-error.log*
 next-env.d.ts
 **/scripts/.out/
 **/scripts/.shots/
-scripts/.out
-scripts/.shots
