@@ -23,24 +23,27 @@
 用户一句话需求
       │
       ▼
-① 规划   chatOnce → JSON{应用名, 定位, 3~5 个可交互功能点}     ← 让"生成什么"先对齐
+① 产品经理  chatOnce → JSON{应用名, 定位, 3~5 个可交互功能点}   ← 让"生成什么"先对齐
       │
       ▼
-② 生成   chatStream → 单文件 HTML（内联 CSS/JS，零外部依赖）  ← 逐 token 流式，前端实时显示进度
+② 工程师    chatStream → 单文件 HTML（内联 CSS/JS，零外部依赖） ← 逐 token 流式，前端实时显示进度
       │
       ▼
-③ 校验   validateApp() 纯函数静态检查：DOCTYPE/闭合标签/标签配对/
-         外链、localStorage、alert() 等  ← 不通过则进入 ④
+③ QA        validateApp() 纯函数静态检查：DOCTYPE/闭合标签/标签配对/
+            外链、localStorage、alert() 等  ← 不通过则进入 ④
       │
       ▼
-④ 自修复 最多 2 轮：把 issue 列表回传模型 → 重新生成 → 再校验
+④ 工程师    最多 2 轮自修复：把 issue 列表回传模型 → 重新生成 → 再校验
       │
       ▼
-⑤ 落库   versions 表存版本 ｜ messages 表存对话与执行步骤 ｜ projects 表更新应用名
+⑤ 工作区    versions 表存版本 ｜ messages 表存对话与执行步骤 ｜ projects 表更新应用名
       │
       ▼
 右侧 iframe 实时渲染 + 代码视图 + 控制台 + 版本回滚
 ```
+
+> 阶段按**角色**命名（产品经理 / 工程师 / QA）是刻意的：atoms.dev 的产品叙事是"AI 员工团队"（validate ideas → build products），
+> 所以这里不是"一次调模型"，而是把职责拆成多角色、有交接产物（方案 JSON → 代码 → 校验报告 → 新版本）的流水线，界面上能逐条看到每个角色做了什么。
 
 **为什么生成"单文件 HTML"而不是 React 工程？**
 1. 浏览器 `iframe srcdoc` 秒级渲染，不需要构建/沙箱进程，Demo 的"体验闭环"最短；

@@ -428,6 +428,16 @@ export default function Studio() {
     window.open(url, "_blank", "noopener");
   }, [code]);
 
+  const copyCode = useCallback(async () => {
+    if (!code) return;
+    try {
+      await navigator.clipboard.writeText(code);
+      toast("源码已复制到剪贴板");
+    } catch {
+      toast("复制失败：浏览器未授权剪贴板");
+    }
+  }, [code, toast]);
+
   const fixFromConsole = useCallback(() => {
     const errs = entries.filter((e) => e.level === "error").map((e) => e.text);
     if (!errs.length || running) return;
@@ -576,6 +586,7 @@ export default function Studio() {
           entries={entries}
           onFix={fixFromConsole}
           onExport={exportHtml}
+          onCopy={copyCode}
           onOpen={openExternal}
           reloadTick={reloadTick}
           onReload={reloadPreview}

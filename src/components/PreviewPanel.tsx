@@ -20,6 +20,7 @@ export default function PreviewPanel({
   entries,
   onFix,
   onExport,
+  onCopy,
   onOpen,
   reloadTick,
   onReload,
@@ -37,6 +38,7 @@ export default function PreviewPanel({
   entries: ConsoleEntry[];
   onFix: () => void;
   onExport: () => void;
+  onCopy: () => void;
   onOpen: () => void;
   reloadTick: number;
   onReload: () => void;
@@ -111,6 +113,11 @@ export default function PreviewPanel({
           <button className="btn ghost icon hide-sm" onClick={onOpen} aria-label="新标签打开" title="新标签打开">
             <Icon.external size={14} />
           </button>
+          {tab === "code" && code && (
+            <button className="btn sm" onClick={onCopy} title="复制源码">
+              <Icon.copy size={12} /> 复制
+            </button>
+          )}
           <button className="btn sm" onClick={onExport} disabled={!code}>
             <Icon.download size={12} /> 导出
           </button>

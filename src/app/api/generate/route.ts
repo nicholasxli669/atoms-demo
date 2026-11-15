@@ -98,21 +98,21 @@ export async function POST(req: Request) {
           plan = { name: projectAppName || projectName, summary: "在已有应用上继续修改", features: [] };
         } else if (!live) {
           plan = demoApp(message).plan;
-          setStep("plan", "理解需求", "skip", "离线演示模式：使用内置方案 " + plan.name);
+          setStep("plan", "产品经理 · 拆解需求并定方案", "skip", "离线演示模式：使用内置方案 " + plan.name);
           push({ t: "plan", plan });
         } else {
-          setStep("plan", "理解需求并规划方案", "run");
+          setStep("plan", "产品经理 · 拆解需求并定方案", "run");
           try {
             const raw = await chatOnce(planMessages(message), { maxTokens: 420, temperature: 0.4 });
             plan = parsePlan(raw, guessName(message));
           } catch (e) {
             plan = { name: guessName(message), summary: "", features: [] };
-            setStep("plan", "理解需求并规划方案", "err", (e as Error).message.slice(0, 160));
+            setStep("plan", "产品经理 · 拆解需求并定方案", "err", (e as Error).message.slice(0, 160));
           }
           if (steps[0].status === "run") {
             setStep(
               "plan",
-              "理解需求并规划方案",
+              "产品经理 · 拆解需求并定方案",
               "ok",
               `${plan.name} · ${plan.features.length ? plan.features.join(" / ") : plan.summary || "已确定实现范围"}`,
             );
@@ -129,7 +129,7 @@ export async function POST(req: Request) {
             : "";
 
         let code = "";
-        const genLabel = mode === "edit" ? "生成修改后的代码" : "生成界面与交互代码";
+        const genLabel = mode === "edit" ? "工程师 · 按新要求改写" : "工程师 · 编写界面与交互";
         setStep("code", genLabel, "run");
 
         if (!live) {
@@ -168,7 +168,7 @@ export async function POST(req: Request) {
 
         // 3.5) 如果是"运行时错误修复"模式，把控制台日志作为额外上下文再跑一次修复
         if (mode === "edit" && body.runtimeLogs?.length && live) {
-          setStep("repair", "根据控制台报错定位问题", "run");
+          setStep("repair", "工程师 · 按控制台报错定位修复", "run");
           const v0 = validateApp(code);
           const issues = [
             ...v0.issues,
@@ -176,7 +176,7 @@ export async function POST(req: Request) {
           ];
           code = await repairOnce(code, issues, body.runtimeLogs, push);
           const after = validateApp(code);
-          setStep("repair", "根据控制台报错定位问题", after.ok ? "ok" : "err", after.ok ? "已重写并消除报错" : "仍有问题，建议继续对话修正");
+          setStep("repair", "工程师 · 按控制台报错定位修复", after.ok ? "ok" : "err", after.ok ? "已重写并消除报错" : "仍有问题，建议继续对话修正");
         }
 
         // 4) 静态校验 + 自动修复
@@ -184,7 +184,7 @@ export async function POST(req: Request) {
         const errs = v.issues.filter((i) => i.level === "error");
         setStep(
           "validate",
-          "静态校验",
+          "QA · 静态校验",
           v.ok ? "ok" : "err",
           v.ok
             ? `${v.stats.lines} 行 · localStorage ${v.stats.hasStorage ? "已接入" : "未使用"} · ${v.issues.length} 条建议`
@@ -195,12 +195,12 @@ export async function POST(req: Request) {
         let round = 0;
         while (!v.ok && round < 2 && live) {
           round += 1;
-          setStep("repair", `自动修复第 ${round} 轮`, "run");
+          setStep("repair", `工程师 · 自动修复第 ${round} 轮`, "run");
           code = await repairOnce(code, v.issues, body.runtimeLogs, push);
           v = validateApp(code);
           setStep(
             "repair",
-            `自动修复第 ${round} 轮`,
+            `工程师 · 自动修复第 ${round} 轮`,
             v.ok ? "ok" : "err",
             v.ok ? "校验通过" : v.issues.filter((i) => i.level === "error").map((e) => e.msg).join("；"),
           );
@@ -219,7 +219,7 @@ export async function POST(req: Request) {
           code,
           summary: plan.summary,
         });
-        setStep("persist", "保存版本", "ok", `${label} · ${(Buffer.byteLength(code, "utf8") / 1024).toFixed(1)} KB`);
+        setStep("persist", "工作区 · 保存版本", "ok", `${label} · ${(Buffer.byteLength(code, "utf8") / 1024).toFixed(1)} KB`);
 
         const autoRename =
           mode === "new" && (projectName === "新应用" || projectName === projectAppName);
