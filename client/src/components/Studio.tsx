@@ -12,6 +12,7 @@ import type {
   ConsoleEntry,
   Plan,
   Project,
+  Report,
   Step,
   Version,
 } from "@/lib/types";
@@ -76,6 +77,7 @@ export default function Studio() {
   const runVersion = useRef<number | null>(null);
   const runSummary = useRef<string | null>(null);
   const runError = useRef<string | null>(null);
+  const runReport = useRef<Report | null>(null);
   const entrySeq = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -264,6 +266,9 @@ export default function Studio() {
         case "summary":
           runSummary.current = ev.text;
           break;
+        case "report":
+          runReport.current = ev.report;
+          break;
         case "error":
           runError.current = ev.message;
           break;
@@ -280,6 +285,7 @@ export default function Studio() {
             plan: runPlan.current,
             versionId: runVersion.current,
             createdAt: Date.now(),
+            report: runReport.current,
           };
           setMessages((prev) => [...prev, msg]);
           if (runError.current) toast(runError.current.slice(0, 90));
@@ -309,6 +315,7 @@ export default function Studio() {
       runVersion.current = null;
       runSummary.current = null;
       runError.current = null;
+      runReport.current = null;
 
       setInput("");
       setSteps([]);

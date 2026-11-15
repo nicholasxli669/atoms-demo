@@ -39,6 +39,12 @@ export const Icon = {
       <path d="M20 6L9 17l-5-5" />
     </Svg>
   ),
+  shield: (p: P) => (
+    <Svg {...p}>
+      <path d="M12 3l7 3v5c0 4.4-2.9 8.1-7 9.4C7.9 19.1 5 15.4 5 11V6l7-3z" />
+      <path d="M9 12l2 2 4-4" />
+    </Svg>
+  ),
   x: (p: P) => (
     <Svg {...p}>
       <path d="M18 6L6 18M6 6l12 12" />

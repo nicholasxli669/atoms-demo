@@ -136,6 +136,12 @@ async function getDriver(): Promise<Driver> {
         ? await createLibsqlDriver(url, process.env.TURSO_AUTH_TOKEN)
         : await createSqliteDriver();
       await d.exec(SCHEMA);
+      // 轻量迁移：老库没有 report 列，补上（SQLite 不支持 ADD COLUMN IF NOT EXISTS，靠忽略异常）
+      try {
+        await d.exec(`ALTER TABLE messages ADD COLUMN report TEXT`);
+      } catch {
+        /* 列已存在 */
+      }
       return d;
     })();
   }
@@ -191,6 +197,12 @@ function toMessage(r: Row): ChatMessage {
   } catch {
     plan = null;
   }
+  let report: ChatMessage["report"] = null;
+  try {
+    if (r.report) report = JSON.parse(String(r.report)) as ChatMessage["report"];
+  } catch {
+    report = null;
+  }
   return {
     id: n(r.id),
     projectId: String(r.project_id),
@@ -200,6 +212,7 @@ function toMessage(r: Row): ChatMessage {
     plan,
     versionId: r.version_id == null ? null : n(r.version_id),
     createdAt: n(r.created_at),
+    report,
   };
 }
 
@@ -297,12 +310,13 @@ export const store = {
     steps?: Step[] | null;
     plan?: Plan | null;
     versionId?: number | null;
+    report?: ChatMessage["report"];
   }): Promise<ChatMessage> {
     const d = await getDriver();
     const now = Date.now();
     const { lastInsertRowid } = await d.run(
-      `INSERT INTO messages (project_id, role, content, steps, plan, version_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO messages (project_id, role, content, steps, plan, version_id, report, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         m.projectId,
         m.role,
@@ -310,6 +324,7 @@ export const store = {
         m.steps ? JSON.stringify(m.steps) : null,
         m.plan ? JSON.stringify(m.plan) : null,
         m.versionId ?? null,
+        m.report ? JSON.stringify(m.report) : null,
         now,
       ],
     );
@@ -322,6 +337,7 @@ export const store = {
       plan: m.plan ?? null,
       versionId: m.versionId ?? null,
       createdAt: now,
+      report: m.report ?? null,
     };
   },
 

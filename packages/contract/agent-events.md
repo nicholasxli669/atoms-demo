@@ -42,13 +42,14 @@ client 只在 `ok=true 且 ready=true` 时走 server；否则回落到自身内�
 1. 首事件必须是 `start`；正常跑完以 `final` 收尾，异常/取消以 `error` 收尾（不允许无终止地断开）
 2. `final` 必须且只能出现一次
 3. `final.ok = true` 时 `code` 必须以 `</html>` 结尾且 ≥ 500 字节
-4. server **不发送** `version / summary / end`——这些由 client 生成
+4. server **不发送** `version / report / summary / end`——这些由 client 生成
 5. server 无状态：不写数据库、不存文件
 
 ## 3. client → 浏览器事件
 
 沿用原有客户端协议：server 的事件原样透传（`start/step/plan/delta/validate/error`），
-末尾由 client 追加 `version`（落库后的版本对象）、`summary`（人话总结）、`end`。
+末尾由 client 追加 `version`（落库后的版本对象）、`report`（质量验收报告：7 项静态判据 + 修复/续写次数）、
+`summary`（人话总结）、`end`。注意 `report` 由 client 用**它自己的**校验器算，所以 TS 侧规则是唯一判据来源。
 
 ## 4. 判据必须一致
 

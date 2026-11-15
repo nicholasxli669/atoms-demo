@@ -10,6 +10,7 @@ import {
 import { extractHtml, validateApp, type Issue } from "@/lib/validate";
 import { demoApp } from "@/lib/demoTemplates";
 import { buildSummary } from "@/lib/summary";
+import { buildReport } from "@/lib/report";
 import { agentHealthy, streamAgent } from "@/lib/agentClient";
 import { store } from "@/lib/store";
 import type { AgentEvent, Plan, Step, Version } from "@/lib/types";
@@ -73,6 +74,7 @@ export async function POST(req: Request) {
     );
   }
   inFlight.set(projectId, Date.now());
+  const startedAt = Date.now();
 
   const live = llmReady();
   const encoder = new TextEncoder();
@@ -230,11 +232,11 @@ export async function POST(req: Request) {
         let round = 0;
         while (!v.ok && round < 2 && live) {
           round += 1;
-          setStep("repair", `工程师 · 自动修复第 ${round} 轮`, "run");
+          setStep(`repair-${round}`, `工程师 · 自动修复第 ${round} 轮`, "run");
           code = await repairOnce(code, v.issues, body.runtimeLogs, push);
           v = validateApp(code);
           setStep(
-            "repair",
+            `repair-${round}`,
             `工程师 · 自动修复第 ${round} 轮`,
             v.ok ? "ok" : "err",
             v.ok ? "校验通过" : v.issues.filter((i) => i.level === "error").map((e) => e.msg).join("；"),
@@ -248,7 +250,7 @@ export async function POST(req: Request) {
         const isTruncated = () => !/<\/html>\s*$/i.test(code.trim());
         while (!v.ok && isTruncated() && cont < 2 && live) {
           cont += 1;
-          setStep("repair", `工程师 · 续写被截断的尾部（第 ${cont} 次）`, "run");
+          setStep(`continue-${cont}`, `工程师 · 续写被截断的尾部（第 ${cont} 次）`, "run");
           let more = "";
           for await (const d of chatStream(continueMessages(code.slice(-4000)), {
             maxTokens: 8000,
@@ -260,7 +262,7 @@ export async function POST(req: Request) {
           code = extractHtml(code + more);
           v = validateApp(code);
           setStep(
-            "repair",
+            `continue-${cont}`,
             `工程师 · 续写被截断的尾部（第 ${cont} 次）`,
             v.ok ? "ok" : "err",
             v.ok
@@ -285,6 +287,7 @@ export async function POST(req: Request) {
           issues: v.issues.map((i) => ({ level: i.level, msg: i.msg })),
           stats: v.stats,
           live,
+          startedAt,
           steps,
           push,
           setStep,
@@ -358,6 +361,7 @@ export async function POST(req: Request) {
           issues: final.issues,
           stats: final.stats,
           live: true,
+          startedAt,
           steps,
           push,
           setStep,
@@ -417,6 +421,8 @@ interface PersistInput {
   stats: { lines: number; bytes: number; hasStorage: boolean };
   live: boolean;
   steps: Step[];
+  /** 本轮开始时间（算总耗时用） */
+  startedAt: number;
   push: (e: AgentEvent) => void;
   setStep: (key: string, label: string, status: Step["status"], detail?: string) => void;
 }
@@ -456,6 +462,16 @@ async function persistRun(o: PersistInput): Promise<void> {
     appName: o.plan.name,
     ...(autoRename ? { name: o.plan.name } : {}),
   });
+
+  // 质量验收报告：把"检查了什么、修了几轮、多大、多久"固化成一张卡，
+  // 随消息一起落库，所以刷新页面后历史消息里也看得到。
+  const report = buildReport({
+    code: o.code,
+    steps: o.steps,
+    mode: o.mode,
+    ms: Date.now() - o.startedAt,
+  });
+
   await store.addMessage({
     projectId: o.projectId,
     role: "agent",
@@ -463,9 +479,11 @@ async function persistRun(o: PersistInput): Promise<void> {
     steps: o.steps,
     plan: o.plan,
     versionId: version.id,
+    report,
   });
 
   o.push({ t: "version", version });
+  o.push({ t: "report", report });
   o.push({ t: "summary", text: summaryText });
 }
 

@@ -44,6 +44,33 @@ export interface ChatMessage {
   plan: Plan | null;
   versionId: number | null;
   createdAt: number;
+  /** 质量验收报告：静态体检逐项结果 + 修复/续写次数（历史消息也能看） */
+  report?: Report | null;
+}
+
+export interface CheckResult {
+  key: string;
+  label: string;
+  ok: boolean;
+  detail?: string;
+}
+
+export interface Report {
+  /** 是否通过静态体检（无 error） */
+  ok: boolean;
+  checks: CheckResult[];
+  /** 自动修复轮数（含按运行时报错修复） */
+  repairs: number;
+  /** 被 8k 输出上限截断后的续写次数 */
+  continuations: number;
+  lines: number;
+  bytes: number;
+  /** 本轮总耗时（毫秒） */
+  ms: number;
+  /** 建议条数（warn） */
+  warns: number;
+  mode: "new" | "edit";
+  at: number;
 }
 
 export interface ConsoleEntry {
@@ -61,6 +88,7 @@ export type AgentEvent =
   | { t: "delta"; chars: number }
   | { t: "validate"; ok: boolean; issues: { level: string; msg: string }[] }
   | { t: "version"; version: Version }
+  | { t: "report"; report: Report }
   | { t: "summary"; text: string }
   | { t: "error"; message: string }
   | { t: "end" };

@@ -140,12 +140,12 @@ async def run_pipeline(req: RunRequest, llm: LLM) -> AsyncIterator[Event]:
     while not result.ok and rounds < MAX_REPAIR_ROUNDS:
         rounds += 1
         label = f"工程师 · 自动修复第 {rounds} 轮"
-        yield _step("repair", label, "run")
+        yield _step(f"repair-{rounds}", label, "run")
         issues = [{"level": i.level, "msg": i.msg} for i in result.issues]
         code = await _repair_once(code, issues, req.runtime_logs, llm)
         result = validate_app(code)
         yield _step(
-            "repair",
+            f"repair-{rounds}",
             label,
             "ok" if result.ok else "err",
             "校验通过" if result.ok else "；".join(result.errors()),
@@ -157,7 +157,7 @@ async def run_pipeline(req: RunRequest, llm: LLM) -> AsyncIterator[Event]:
     while not result.ok and looks_truncated(code) and cont < MAX_CONTINUE_ROUNDS:
         cont += 1
         label = f"工程师 · 续写被截断的尾部（第 {cont} 次）"
-        yield _step("repair", label, "run")
+        yield _step(f"continue-{cont}", label, "run")
         more = ""
         async for piece in llm.stream(
             continue_messages(code[-4000:]), max_tokens=8000, temperature=0.15
@@ -167,7 +167,7 @@ async def run_pipeline(req: RunRequest, llm: LLM) -> AsyncIterator[Event]:
         code = extract_html(code + more)
         result = validate_app(code)
         yield _step(
-            "repair",
+            f"continue-{cont}",
             label,
             "ok" if result.ok else "err",
             f"{result.stats.lines} 行 · 续写后已闭环" if result.ok else "；".join(result.errors()),

@@ -1279,3 +1279,106 @@ kbd {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ---------------- 质量验收报告卡 ---------------- */
+.report {
+  margin: 10px 0 2px;
+  padding: 10px 11px 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent);
+}
+.report.pass {
+  border-color: rgba(61, 220, 151, 0.28);
+  background: linear-gradient(180deg, rgba(61, 220, 151, 0.07), transparent);
+}
+.report.fail {
+  border-color: rgba(255, 107, 107, 0.3);
+  background: linear-gradient(180deg, rgba(255, 107, 107, 0.07), transparent);
+}
+.report-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.report-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--txt);
+  letter-spacing: 0.2px;
+}
+.report-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.report-badge.ok {
+  color: #3ddc97;
+  border-color: rgba(61, 220, 151, 0.35);
+  background: rgba(61, 220, 151, 0.1);
+}
+.report-badge.bad {
+  color: #ff8080;
+  border-color: rgba(255, 107, 107, 0.35);
+  background: rgba(255, 107, 107, 0.1);
+}
+.report-verdict {
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: var(--txt-2);
+  line-height: 1.5;
+}
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--panel-3);
+  color: var(--txt-2);
+  white-space: nowrap;
+}
+.check b {
+  font-weight: 500;
+  color: inherit;
+  opacity: 0.8;
+}
+.check-icon {
+  display: inline-flex;
+}
+.check.ok {
+  color: #7ee2b3;
+  border-color: rgba(61, 220, 151, 0.22);
+}
+.check.bad {
+  color: #ff9a9a;
+  border-color: rgba(255, 107, 107, 0.28);
+  background: rgba(255, 107, 107, 0.08);
+}
+.report-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--line);
+  font-size: 10.5px;
+  color: var(--txt-3);
+}
+.report-meta .warn {
+  color: #ffc46b;
+}

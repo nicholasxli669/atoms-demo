@@ -1,6 +1,9 @@
 /**
  * 生成代码的静态校验：在交付给用户预览前先卡一遍明显错误。
  * 纯函数，方便单测与在客户端复用。
+ *
+ * 除 issues（错误/建议列表）外，还输出 checks（逐项体检结果），
+ * 用于在界面上把"我们检查了什么"摊开给用户看。
  */
 
 export interface Issue {
@@ -8,9 +11,17 @@ export interface Issue {
   msg: string;
 }
 
+export interface Check {
+  key: string;
+  label: string;
+  ok: boolean;
+  detail?: string;
+}
+
 export interface ValidateResult {
   ok: boolean;
   issues: Issue[];
+  checks: Check[];
   stats: {
     lines: number;
     bytes: number;
@@ -60,23 +71,25 @@ export function validateApp(code: string): ValidateResult {
     count(src, /<(?:script|link|img|iframe)[^>]+(?:src|href)=["']https?:\/\//gi) +
     count(src, /@import\s+url\(\s*["']?https?:/gi);
 
-  if (bytes < 500) issues.push({ level: "error", msg: `输出内容过短（${bytes} 字节），疑似未完整生成` });
-  if (!/<!doctype html|<html[\s>]/i.test(src))
-    issues.push({ level: "error", msg: "缺少 <!DOCTYPE html> / <html> 根节点" });
-  if (!lower.includes("</html>"))
-    issues.push({ level: "error", msg: "HTML 未闭合（缺少 </html>），输出可能被截断" });
-  if (!/<body[\s>]/i.test(src)) issues.push({ level: "error", msg: "缺少 <body>" });
-
+  const hasDoctype = /<!doctype html|<html[\s>]/i.test(src);
+  const hasClosed = lower.includes("</html>");
+  const hasBody = /<body[\s>]/i.test(src);
   const openScript = count(lower, /<script[\s>]/g);
   const closeScript = count(lower, /<\/script>/g);
+  const openStyle = count(lower, /<style[\s>]/g);
+  const closeStyle = count(lower, /<\/style>/g);
+
+  if (bytes < 500) issues.push({ level: "error", msg: `输出内容过短（${bytes} 字节），疑似未完整生成` });
+  if (!hasDoctype) issues.push({ level: "error", msg: "缺少 <!DOCTYPE html> / <html> 根节点" });
+  if (!hasClosed) issues.push({ level: "error", msg: "HTML 未闭合（缺少 </html>），输出可能被截断" });
+  if (!hasBody) issues.push({ level: "error", msg: "缺少 <body>" });
+
   if (openScript !== closeScript)
     issues.push({
       level: "error",
       msg: `<script> 标签不配对（${openScript} 开 / ${closeScript} 闭）`,
     });
 
-  const openStyle = count(lower, /<style[\s>]/g);
-  const closeStyle = count(lower, /<\/style>/g);
   if (openStyle !== closeStyle)
     issues.push({ level: "error", msg: `<style> 标签不配对（${openStyle} 开 / ${closeStyle} 闭）` });
 
@@ -90,10 +103,31 @@ export function validateApp(code: string): ValidateResult {
   if (lower.includes("alert(") || lower.includes("prompt("))
     issues.push({ level: "warn", msg: "使用了 alert()/prompt() 原生弹窗，体验较差" });
 
+  const checks: Check[] = [
+    { key: "doctype", label: "DOCTYPE / html 根节点", ok: hasDoctype },
+    { key: "closed", label: "</html> 已闭合", ok: hasClosed },
+    { key: "body", label: "<body> 存在", ok: hasBody },
+    {
+      key: "tags",
+      label: "script / style 配对",
+      ok: openScript === closeScript && openStyle === closeStyle,
+      detail: `script ${openScript}/${closeScript} · style ${openStyle}/${closeStyle}`,
+    },
+    { key: "size", label: "体积 ≥ 500 字节", ok: bytes >= 500, detail: `${bytes} 字节` },
+    { key: "storage", label: "localStorage 持久化", ok: hasStorage },
+    {
+      key: "offline",
+      label: "零外链（可离线）",
+      ok: external === 0,
+      detail: external > 0 ? `${external} 处外链` : undefined,
+    },
+  ];
+
   const ok = !issues.some((i) => i.level === "error");
   return {
     ok,
     issues,
+    checks,
     stats: { lines, bytes, hasStyle, hasScript, hasStorage, external },
   };
 }

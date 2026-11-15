@@ -76,9 +76,11 @@ async def test_truncated_output_is_recovered_by_continuation():
     llm = FakeLLM([[cut], [cut], [cut], ["</body></html>"]])
     events = await collect(RunRequest(message="做一个待办清单"), llm)
 
-    repair_steps = [e for e in events if e["t"] == "step" and e["key"] == "repair"]
-    assert any("续写被截断的尾部" in e["label"] for e in repair_steps)
-    assert any(e["status"] == "ok" and "续写" in e["label"] for e in repair_steps)
+    # 续写步骤用 continue-N 作 key（而不是复用一个 repair），Web 端靠这个前缀统计续写次数
+    cont_steps = [e for e in events if e["t"] == "step" and e["key"].startswith("continue")]
+    assert cont_steps, "续写步骤应使用 continue-N 作为 key"
+    assert any("续写被截断的尾部" in e["label"] for e in cont_steps)
+    assert any(e["status"] == "ok" and "续写" in e["label"] for e in cont_steps)
 
     final = events[-1]
     assert final["t"] == "final"
